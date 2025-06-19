@@ -18,7 +18,7 @@ def parse_xer_file(filepath):
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
             line = line.strip()
-            
+
             if not line:
                 continue
 
