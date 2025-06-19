@@ -60,6 +60,9 @@ if data_date_str:
                     if "PROJECT" not in xer_tables:
                         st.warning(f"PROJECT table not found in {filename}. Skipping.")
                         continue
+                    else:
+                        st.info(f"✅ PROJECT table found in {filename}")
+                        st.write(xer_tables["PROJECT"])
 
                     for _, proj_row in xer_tables["PROJECT"].iterrows():
                         proj_id = proj_row["proj_id"]
@@ -81,24 +84,34 @@ if data_date_str:
                             else:
                                 all_dataframes[key].append(filtered)
 
-            # Write all output to a temporary folder for zipping
-            output_temp_dir = os.path.join(temp_dir, "csv_outputs")
-            os.makedirs(output_temp_dir, exist_ok=True)
+            if not all_dataframes:
+                st.warning("No data was processed. Please check your input files.")
+            else:
+                # Write all output to a temporary folder for zipping
+                output_temp_dir = os.path.join(temp_dir, "csv_outputs")
+                os.makedirs(output_temp_dir, exist_ok=True)
 
-            for table_name, df_list in all_dataframes.items():
-                full_df = pd.concat(df_list, ignore_index=True)
-                output_path = os.path.join(output_temp_dir, f"{table_name}.csv")
-                full_df.to_csv(output_path, index=False)
+                for table_name, df_list in all_dataframes.items():
+                    full_df = pd.concat(df_list, ignore_index=True)
+                    output_path = os.path.join(output_temp_dir, f"{table_name}.csv")
+                    full_df.to_csv(output_path, index=False)
 
-            # Zip the CSV files
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_out:
-                for csv_file in os.listdir(output_temp_dir):
-                    full_path = os.path.join(output_temp_dir, csv_file)
-                    zip_out.write(full_path, arcname=csv_file)
+                # Display preview
+                st.subheader("✅ Preview of Output")
+                for table_name, df_list in all_dataframes.items():
+                    preview_df = pd.concat(df_list, ignore_index=True)
+                    st.write(f"📄 {table_name} — {len(preview_df)} rows")
+                    st.dataframe(preview_df.head(5))
 
-            zip_buffer.seek(0)
-            st.success("Processing complete. Download your CSVs:")
-            st.download_button("Download CSV ZIP", zip_buffer, file_name=f"XER_CSVs_{data_date_str}.zip")
+                # Zip the CSV files
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_out:
+                    for csv_file in os.listdir(output_temp_dir):
+                        full_path = os.path.join(output_temp_dir, csv_file)
+                        zip_out.write(full_path, arcname=csv_file)
+
+                zip_buffer.seek(0)
+                st.success("Processing complete. Download your CSVs:")
+                st.download_button("Download CSV ZIP", zip_buffer, file_name=f"XER_CSVs_{data_date_str}.zip")
 else:
     st.info("Please enter a valid Data Date to continue.")
