@@ -1,25 +1,50 @@
+# FILE: xer_parser.py
+
 import pandas as pd
+import os
 
-def parse_xer(file_content: str):
+# Define the list of tables expected from a typical XER file
+EXPECTED_TABLES = [
+    'PROJECT', 'TASK', 'WBS', 'TASKPRED', 'TASKRSRC', 'RSRC',
+    'UDFVALUE', 'UDFTYPE', 'CALENDAR', 'TASKCODE', 'PROJCOST',
+    'ACTVCODE', 'ACTVTYPE', 'TASKACTV', 'FLOCATION', 'STEP',
+    'TASKSTEP', 'OBS', 'PROJWBS', 'TASKPROC'
+]
+
+def parse_xer_file(filepath):
     tables = {}
-    lines = file_content.splitlines()
     current_table = None
-    current_data = []
+    data = []
 
-    for line in lines:
-        line = line.strip()
-        if line.startswith("%T"):
-            if current_table and current_data:
-                df = pd.DataFrame([row.split('\t') for row in current_data])
-                tables[current_table] = df
-            current_table = line.replace("%T", "").strip()
-            current_data = []
-        elif current_table:
-            current_data.append(line)
+    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            
+            # Skip empty lines
+            if not line:
+                continue
 
-    # Add last table
-    if current_table and current_data:
-        df = pd.DataFrame([row.split('\t') for row in current_data])
-        tables[current_table] = df
+            # Start of a new table
+            if line.startswith('%T'):
+                current_table = line[2:].strip()
+                data = []
+            
+            # Column headers
+            elif line.startswith('%F') and current_table:
+                headers = line[2:].split('\t')
+            
+            # Data rows
+            elif not line.startswith('%') and current_table:
+                data.append(line.split('\t'))
+
+            # End of table
+            elif line.startswith('%E') and current_table:
+                if current_table in EXPECTED_TABLES:
+                    try:
+                        df = pd.DataFrame(data, columns=headers)
+                        tables[current_table] = df
+                    except Exception as e:
+                        print(f"Error parsing table {current_table}: {e}")
+                current_table = None
 
     return tables
