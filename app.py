@@ -1,41 +1,83 @@
+# FILE: main.py
+
 import streamlit as st
+import zipfile
+import os
 import pandas as pd
-import io
-from xer_parser import parse_xer  # your custom parser
+from xer_parser import parse_xer_file
+from datetime import datetime
 
-st.set_page_config(page_title="XER to CSV Converter", layout="wide")
-st.title("📊 Primavera XER to CSV + Excel Converter")
+# --- CONFIG ---
+ROOT_DIR = "XER_DB"
+BL_SOURCE_XER = os.path.join(ROOT_DIR, "BL_Source_XER")
+BL_CSV_OUTPUTS = os.path.join(ROOT_DIR, "BL_CSV_Outputs")
 
-uploaded_file = st.file_uploader("📁 Upload your XER file", type=["xer"])
+# --- Ensure folder structure ---
+os.makedirs(ROOT_DIR, exist_ok=True)
+os.makedirs(BL_SOURCE_XER, exist_ok=True)
+os.makedirs(BL_CSV_OUTPUTS, exist_ok=True)
 
-if uploaded_file:
-    content = uploaded_file.read().decode("utf-8", errors="ignore")
+# --- App Title ---
+st.title("XER to CSV Batch Processor")
 
-    # Parse XER file into tables
-    tables = parse_xer(content)
+# --- Select Data Date ---
+data_date_str = st.text_input("Enter Reporting Data Date (DD-MM-YYYY)")
+if data_date_str:
+    try:
+        datetime.strptime(data_date_str, "%d-%m-%Y")
+    except ValueError:
+        st.error("Please enter the date in DD-MM-YYYY format")
+        st.stop()
+    
+    OUTPUT_FOLDER = os.path.join(ROOT_DIR, data_date_str, "CSV_Output")
+    SOURCE_FOLDER = os.path.join(ROOT_DIR, data_date_str, "Source_XER")
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(SOURCE_FOLDER, exist_ok=True)
 
-    # Show and offer CSV download per table
-    for name, df in tables.items():
-        st.subheader(f"🧾 {name}")
-        st.dataframe(df.head())
-        csv_data = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"⬇️ Download {name}.csv",
-            data=csv_data,
-            file_name=f"{name}.csv",
-            mime="text/csv"
-        )
+    uploaded_file = st.file_uploader("Upload a ZIP file of XERs", type="zip")
 
-    # Create single Excel file with all sheets
-    excel_buffer = io.BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-        for name, df in tables.items():
-            safe_name = name[:31]  # Excel sheet name limit
-            df.to_excel(writer, sheet_name=safe_name, index=False)
+    if uploaded_file:
+        with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:
+            zip_ref.extractall(SOURCE_FOLDER)
+        st.success("Files extracted. Processing...")
 
-    st.download_button(
-        label="📥 Download All Tables as Excel (.xlsx)",
-        data=excel_buffer.getvalue(),
-        file_name="xer_tables.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        all_dataframes = {}
+
+        for filename in os.listdir(SOURCE_FOLDER):
+            if filename.endswith(".xer"):
+                xer_path = os.path.join(SOURCE_FOLDER, filename)
+                xer_tables = parse_xer_file(xer_path)
+
+                if "PROJECT" not in xer_tables:
+                    st.warning(f"PROJECT table not found in {filename}. Skipping.")
+                    continue
+
+                for _, proj_row in xer_tables["PROJECT"].iterrows():
+                    proj_id = proj_row["proj_id"]
+                    data_date = proj_row["last_recalc_date"]
+
+                    for table_name, df in xer_tables.items():
+                        if "proj_id" in df.columns:
+                            filtered = df[df["proj_id"] == proj_id].copy()
+                        else:
+                            filtered = df.copy()
+
+                        filtered["proj_id"] = proj_id
+                        filtered["DataDate"] = data_date
+                        filtered["source_xer_filename"] = filename
+
+                        key = f"{table_name}"
+                        if key not in all_dataframes:
+                            all_dataframes[key] = [filtered]
+                        else:
+                            all_dataframes[key].append(filtered)
+
+        for table_name, df_list in all_dataframes.items():
+            full_df = pd.concat(df_list, ignore_index=True)
+            output_path = os.path.join(OUTPUT_FOLDER, f"{table_name}.csv")
+            full_df.to_csv(output_path, index=False)
+
+        st.success("All files processed and saved in:")
+        st.code(OUTPUT_FOLDER)
+else:
+    st.info("Please enter a valid Data Date to continue.")
